@@ -18,28 +18,30 @@ class Party:
         self.message = message
         self.received_data = {}
 
-    def start_server(self):
-        try:
-            while True:
-                events = self.serv.sel.select(timeout=None)
-                for key, mask in events:
-                    if key.data is None:
-                        self.serv.accept_wrapper()
-                    else:
-                        self.serv.service_connection(key, mask)
-        except KeyboardInterrupt:
-            print("caught keyboard interrupt, exiting")
-        finally:
-            self.serv.sel.close()
-
     def start_client(self):
-        messages = [b'shares 12121212 68556112332 98152002556']
-        macs = [b'macs 7876543524 12645647983 35648978125']
+        messages = [b"shares 1 12121212 68556112332 98152002556"]
+        macs = [b"macs 1 7876543524 12645647983 35648978125"]
         server_index = random.randint(0, numberOfParties - 2)
         self.client = client.Client(self.otherServers[server_index].HOST, int(self.otherServers[server_index].PORT))
         print("From: ", (self.serv.HOST, self.serv.PORT), "\tTo: ",
               (self.otherServers[server_index].HOST, int(self.otherServers[server_index].PORT)))
         self.client.start_connections(messages)
+        self.handle_client()
+
+    def broadcast_message(self, message):
+        for i in self.otherServers:
+            self.client = client.Client(i.HOST, int(i.PORT))
+            self.client.start_connections(message)
+            self.handle_client()
+
+    def unicast_message(self, partyId, message):
+        filtered_parties = [temp_party for temp_party in parties if temp_party.partyId == partyId]
+        destination_party = filtered_parties[0]
+        self.client = client.Client(destination_party.serv.HOST, int(destination_party.serv.PORT))
+        self.client.start_connections(message)
+        self.handle_client()
+
+    def handle_client(self):
         try:
             while True:
                 events = self.client.sel.select(timeout=1)
@@ -53,27 +55,6 @@ class Party:
             print("caught keyboard interrupt, exiting")
         finally:
             self.client.sel.close()
-
-    def broadcast_message(self, message):
-        for i in self.otherServers:
-            self.client = client.Client(i.HOST, int(i.PORT))
-            self.client.start_connections(message)
-            try:
-                while True:
-                    events = self.client.sel.select(timeout=1)
-                    if events:
-                        for key, mask in events:
-                            self.client.service_connection(key, mask)
-                    # Check for a socket being monitored to continue.
-                    if not self.client.sel.get_map():
-                        break
-            except KeyboardInterrupt:
-                print("caught keyboard interrupt, exiting")
-            finally:
-                self.client.sel.close()
-
-    def unicast_message(self, partyId, message):
-        destination_party = self.otherServers
 
 
 HOST = '127.0.0.1'  # Standard loopback interface address (localhost)

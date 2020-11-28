@@ -14,6 +14,7 @@ class Server(threading.Thread):
         self.PORT = port
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sel = selectors.DefaultSelector()
+        self.received_data = {}
         threading.Thread.__init__(self)
 
     def run(self):
@@ -31,7 +32,15 @@ class Server(threading.Thread):
                     if key.data is None:
                         server.accept_wrapper()
                     else:
-                        server.service_connection(key, mask)
+                        result = server.service_connection(key, mask)
+                        if result is not None:
+                            result_str = str(result, encoding='utf-8')
+                            elements = result_str.split()
+                            type = elements[0]
+                            partyId = elements[1]
+                            remaining = elements[2:]
+                            self.received_data[partyId] = remaining
+                            print("Server service connection result: ", result_str, "\tType: ", type, "\tpartyId: ", partyId)
         except KeyboardInterrupt:
             print("caught keyboard interrupt, exiting")
         finally:
@@ -53,6 +62,7 @@ class Server(threading.Thread):
             if recv_data:
                 data.outb += recv_data
                 print([recv_data])
+                return data.outb
             else:
                 print('closing connection to', data.addr)
                 self.sel.unregister(sock)
@@ -62,6 +72,7 @@ class Server(threading.Thread):
                 print('echoing', repr(data.outb), 'to', data.addr)
                 sent = sock.send(data.outb)  # Should be ready to write
                 data.outb = data.outb[sent:]
+
 
 
 """
