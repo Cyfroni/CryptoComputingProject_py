@@ -16,6 +16,7 @@ class Party:
         self.partyId = partyId
         self.otherServers = otherServers
         self.message = message
+        self.received_data = {}
 
     def start_server(self):
         try:
@@ -53,6 +54,27 @@ class Party:
         finally:
             self.client.sel.close()
 
+    def broadcast_message(self, message):
+        for i in self.otherServers:
+            self.client = client.Client(i.HOST, int(i.PORT))
+            self.client.start_connections(message)
+            try:
+                while True:
+                    events = self.client.sel.select(timeout=1)
+                    if events:
+                        for key, mask in events:
+                            self.client.service_connection(key, mask)
+                    # Check for a socket being monitored to continue.
+                    if not self.client.sel.get_map():
+                        break
+            except KeyboardInterrupt:
+                print("caught keyboard interrupt, exiting")
+            finally:
+                self.client.sel.close()
+
+    def unicast_message(self, partyId, message):
+        destination_party = self.otherServers
+
 
 HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
@@ -61,14 +83,8 @@ numberOfParties = random.randint(2, 5)
 servers = []
 for i in range(0, numberOfParties):
     serv = server.Server(HOST, PORT + i)
-    # print("HOST: ", serv.HOST, "\tPORT:", serv.PORT)
     servers.append(serv)
-    #serv.socket.bind((HOST, PORT + i))
-    #serv.socket.listen()
-    print("listening on", (HOST, PORT + i))
     serv.start()
-    #serv.socket.setblocking(False)
-    #serv.sel.register(serv.socket, selectors.EVENT_READ, data=None)
 
 parties = []
 for i in range(0, numberOfParties):
