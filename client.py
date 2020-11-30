@@ -8,6 +8,9 @@ HOST = '127.0.0.1'  # The server's hostname or IP address
 PORT = 65432  # The port used by the server
 
 
+def print(*args, **kwargs): pass
+
+
 class Client:
     def __init__(self, host, port):
         self.serverHost = host
@@ -35,7 +38,8 @@ class Client:
         if mask & selectors.EVENT_READ:
             recv_data = sock.recv(1024)  # Should be ready to read
             if recv_data:
-                print('received', repr(recv_data), 'from connection', data.connid)
+                print('received', repr(recv_data),
+                      'from connection', data.connid)
                 data.recv_total += len(recv_data)
             if not recv_data or data.recv_total == data.msg_total:
                 print('closing connection', data.connid)
@@ -48,6 +52,7 @@ class Client:
                 print("sending", repr(data.outb), "to connection", data.connid)
                 sent = sock.send(data.outb)  # Should be ready to write
                 data.outb = data.outb[sent:]
+
 
 """
 if len(sys.argv) != 4:

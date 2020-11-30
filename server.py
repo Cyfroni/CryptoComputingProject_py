@@ -8,6 +8,9 @@ HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
 
 
+def print(*args, **kwargs): pass
+
+
 class Server(threading.Thread):
     def __init__(self, host, port):
         self.HOST = host
@@ -40,7 +43,8 @@ class Server(threading.Thread):
                             partyId = elements[1]
                             remaining = elements[2:]
                             self.received_data[partyId] = remaining
-                            print("Server service connection result: ", result_str, "\tType: ", type, "\tpartyId: ", partyId)
+                            print("Server service connection result: ",
+                                  result_str, "\tType: ", type, "\tpartyId: ", partyId)
         except KeyboardInterrupt:
             print("caught keyboard interrupt, exiting")
         finally:
@@ -72,7 +76,6 @@ class Server(threading.Thread):
                 print('echoing', repr(data.outb), 'to', data.addr)
                 sent = sock.send(data.outb)  # Should be ready to write
                 data.outb = data.outb[sent:]
-
 
 
 """

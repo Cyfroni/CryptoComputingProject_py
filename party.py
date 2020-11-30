@@ -8,6 +8,12 @@ from threading import Thread
 import server
 import client
 
+HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
+PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
+
+
+def print(*args, **kwargs): pass
+
 
 class Party:
     def __init__(self, serv, partyId, otherServers, message):
@@ -16,13 +22,12 @@ class Party:
         self.partyId = partyId
         self.otherServers = otherServers
         self.message = message
-        self.received_data = {}
 
-    def start_client(self):
+    def start_client(self, server_index):
         messages = [b"shares 1 12121212 68556112332 98152002556"]
         macs = [b"macs 1 7876543524 12645647983 35648978125"]
-        server_index = random.randint(0, numberOfParties - 2)
-        self.client = client.Client(self.otherServers[server_index].HOST, int(self.otherServers[server_index].PORT))
+        self.client = client.Client(self.otherServers[server_index].HOST, int(
+            self.otherServers[server_index].PORT))
         print("From: ", (self.serv.HOST, self.serv.PORT), "\tTo: ",
               (self.otherServers[server_index].HOST, int(self.otherServers[server_index].PORT)))
         self.client.start_connections(messages)
@@ -35,9 +40,10 @@ class Party:
             self.handle_client()
 
     def unicast_message(self, partyId, message):
-        filtered_parties = [temp_party for temp_party in parties if temp_party.partyId == partyId]
-        destination_party = filtered_parties[0]
-        self.client = client.Client(destination_party.serv.HOST, int(destination_party.serv.PORT))
+        # filtered_parties = [
+        #     temp_party for temp_party in parties if temp_party.partyId == partyId]
+        # destination_party = filtered_parties[0]
+        self.client = client.Client(HOST, int(PORT + partyId))
         self.client.start_connections(message)
         self.handle_client()
 
@@ -57,24 +63,29 @@ class Party:
             self.client.sel.close()
 
 
-HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
-PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
+def parties_init(numberOfParties, Class=Party):
+    servers = []
+    for i in range(0, numberOfParties):
+        serv = server.Server(HOST, PORT + i)
+        servers.append(serv)
+        serv.start()
 
-numberOfParties = random.randint(2, 5)
-servers = []
-for i in range(0, numberOfParties):
-    serv = server.Server(HOST, PORT + i)
-    servers.append(serv)
-    serv.start()
+    parties = []
+    for i in range(0, numberOfParties):
+        otherServers = servers[:]
+        otherServers.remove(servers[i])
+        party = Class(servers[i], i, otherServers, None)
+        print("Server: ", (party.serv.HOST, party.serv.PORT),
+              "\tIndex: ", party.partyId)
+        [print("\tOther servers:", (i.HOST, i.PORT)) for i in otherServers]
+        parties.append(party)
 
-parties = []
-for i in range(0, numberOfParties):
-    otherServers = servers[:]
-    otherServers.remove(servers[i])
-    party = Party(servers[i], i, otherServers, None)
-    print("Server: ", (party.serv.HOST, party.serv.PORT), "\tIndex: ", party.partyId)
-    [print("\tOther servers:", (i.HOST, i.PORT)) for i in otherServers]
-    parties.append(party)
+    return parties
 
-for i in range(0, numberOfParties):
-    parties[i].start_client()
+
+if __name__ == "__main__":
+    numberOfParties = random.randint(2, 5)
+    parties = parties_init(numberOfParties)
+
+    for i in range(0, numberOfParties):
+        parties[i].start_client(random.randint(0, numberOfParties - 2))

@@ -1,4 +1,10 @@
 import random
+import paillier
+from time import sleep
+from party import Party, parties_init
+
+# paillier.encrypt = lambda m, *args: m
+# paillier.decrypt = lambda c, *args: c
 
 n = 3
 p = 97
@@ -6,6 +12,10 @@ p = 97
 
 def randint():
     return random.randint(0, p - 1)
+
+
+def randints(u):
+    return [randint() for _ in range(u)]
 
 
 def generate_shares(val):
@@ -95,6 +105,66 @@ def multiply(x_s, y_s, triple, j):
     return Offline.addition(z0_s, z1_s)
 
 
+class Env:
+
+    def __init__(self, n):
+        self.parties = parties_init(n, BDOZParty)
+        # self.varid = 0
+        sleep(1)
+
+    def share(self, u):
+        for party in self.parties:
+            xs = randints(u)
+            xs_en = [party._encrypt(x) for x in xs]
+            party._broadcast(xs_en)
+
+            party.data["shares"] = (xs, xs_en)
+
+        sleep(1)
+
+        for party in self.parties:
+            data = party._receive_broadcast(party.data["shares"][1])
+            xk = list(zip(*data))
+
+            party.output = xk
+
+        # self.varid += u
+
+    # def mult_2(u, pi, pj):
+    #     for k in range(1, u + 1):
+    #         r = randint()
+    #         c = (pi.encrypt(pi.output[-k], pj.pk) + pi.encrypt(r, pj.pk)) % p
+    #         pi._unicast(pj.partyId, )
+
+    def mult_n(self, u):
+        self.share(2 * u)
+        for party in self.parties:
+            party.input = party.output
+            party.data['c'] = [
+                [(a * b) % p for a, b in zip(ak, bk)]
+                for ak, bk in zip(party.input[:u], party.input[u:])
+            ]
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                a = [ak[i] for ak in self.parties[i].input[:u]]
+                b = [bk[j] for bk in self.parties[i].input[u:]]
+
+                rs = randints(u)
+                C = [(self.parties[i].data["shares"][0][k] * b[k] + self.parties[i]._encrypt(rs[k], self.parties[j].pk))
+                     for k in range(u)]
+                # print(C)
+
+                self.parties[i]._unicast(self.parties[j].partyId, C)
+                self.parties[i].output = [-r % p for r in rs]
+                print(self.parties[i].output)
+                sleep(1)
+                vs = self.parties[j]._receive_unicast(self.parties[i].partyId)
+                self.parties[j].output = [
+                    self.parties[j]._decrypt(v) % p for v in vs]
+                print(self.parties[j].output)
+
+
 # a -> a
 # a_s -> [a]
 # a_ -> ai
@@ -106,9 +176,66 @@ def multiply(x_s, y_s, triple, j):
 # a_m = [ ..., (a_mk, a_mm), ... ]
 
 
-class Party:
-    def __init__(self):
+class BDOZParty(Party):
+    def __init__(self, *args):
+        self.sk = paillier.keyGen(10)  # n, g, lamb, miu
+        self.pk = [self.sk[0], self.sk[1]]
         self.alphas = [randint() for _ in range(n)]
+        self.data = {}
+        self.output = []
+        self.input = []
+        super().__init__(*args)
+
+    def _get_messages(self):
+        messages = self.serv.received_data
+        self.serv.received_data = {}
+        return messages
+
+    def _get_message(self, source_id):
+        message = self.serv.received_data[str(source_id)]
+        self.serv.received_data[str(source_id)] = None
+        return message
+
+    def _to_message(self, vals):
+        message = " ".join(map(str, vals))
+        return [bytes(f"0 {self.partyId} {message}", 'ascii')]
+
+    def _to_vals(self, message):
+        return list(map(int, message))
+
+    def _broadcast(self, vals):
+        print(f"{self.partyId}: broadcast {vals}")
+        self.broadcast_message(self._to_message(vals))
+
+    def _receive_broadcast(self, vals):
+        messages = self._get_messages()
+        print(f"{self.partyId}: received {messages}")
+
+        ret = [0] * n
+
+        for party_id, message in messages.items():
+            ret[int(party_id)] = self._to_vals(message)
+
+        ret[self.partyId] = vals
+
+        return ret
+
+    def _unicast(self, target_id, vals):
+        print(f"{self.partyId} -> {target_id}: unicast {vals}")
+        self.unicast_message(target_id, self._to_message(vals))
+
+    def _receive_unicast(self, source_id):
+        message = self._get_message(source_id)
+        print(f"{self.partyId}: received {message}")
+
+        return self._to_vals(message)
+
+    def _encrypt(self, m, key=None):
+        key = key if key else self.pk
+        return paillier.encrypt(m, *key)
+
+    def _decrypt(self, c):
+        return paillier.decrypt(c, *self.sk)
 
     def singles(self, a=randint()):
         a_s = generate_shares(a)
@@ -200,8 +327,11 @@ def test_online():
 
 
 if __name__ == "__main__":
-    test_offline()
-    test_online()
+    env = Env(n)
+    # env.share(5)
+    env.mult_n(4)
+    # test_offline()
+    # test_online()
 
 
 # print(*partys[0].triples(), sep="\n")
