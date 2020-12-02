@@ -3,8 +3,8 @@ import paillier
 from time import sleep
 from party import Party, parties_init
 
-# paillier.encrypt = lambda m, *args: m
-# paillier.decrypt = lambda c, *args: c
+paillier.encrypt = lambda m, *args: m
+paillier.decrypt = lambda c, *args: c
 
 n = 3
 p = 97
@@ -114,7 +114,7 @@ class Env:
 
     def share(self, u):
         for party in self.parties:
-            xs = randints(u)
+            xs = party.input3 if party.input3 else randints(u)
             xs_en = [party._encrypt(x) for x in xs]
             party._broadcast(xs_en)
 
@@ -130,50 +130,66 @@ class Env:
 
         # self.varid += u
 
-    # def mult_2(u, pi, pj):
-    #     for k in range(1, u + 1):
-    #         r = randint()
-    #         c = (pi.encrypt(pi.output[-k], pj.pk) + pi.encrypt(r, pj.pk)) % p
-    #         pi._unicast(pj.partyId, )
+    def mult_2(self, u, i, j):
+        a = [ak[i] for ak in self.parties[i].input[:u]]
+        b = [bk[j] for bk in self.parties[i].input[u:]]
+
+        rs = randints(u)
+        C = [(self.parties[i].data["shares"][0][k] * b[k] + self.parties[i]._encrypt(rs[k], self.parties[j].pk))
+             for k in range(u)]
+        # print(C)
+
+        self.parties[i]._unicast(self.parties[j].partyId, C)
+        self.parties[i].output = [-r % p for r in rs]
+
+        sleep(1)
+
+        vs = self.parties[j]._receive_unicast(self.parties[i].partyId)
+        self.parties[j].output = [self.parties[j]._decrypt(v) % p for v in vs]
 
     def mult_n(self, u):
         self.share(2 * u)
         for party in self.parties:
             party.input = party.output
             party.data['c'] = [
-                [(a * b) % p for a, b in zip(ak, bk)]
-                for ak, bk in zip(party.input[:u], party.input[u:])
+                (ak[party.partyId] * bk[party.partyId]) % p for ak, bk in zip(party.input[:u], party.input[u:])
             ]
 
         for i in range(n):
-            for j in range(i + 1, n):
-                a = [ak[i] for ak in self.parties[i].input[:u]]
-                b = [bk[j] for bk in self.parties[i].input[u:]]
+            for j in range(n):
+                if i == j:
+                    continue
 
-                rs = randints(u)
-                C = [(self.parties[i].data["shares"][0][k] * b[k] + self.parties[i]._encrypt(rs[k], self.parties[j].pk))
-                     for k in range(u)]
-                # print(C)
+                self.mult_2(u, i, j)
 
-                self.parties[i]._unicast(self.parties[j].partyId, C)
-                self.parties[i].output = [-r % p for r in rs]
+                self.parties[i].data['c'] = [
+                    (c + z) % p for c, z in zip(self.parties[i].data['c'], self.parties[i].output)]
                 print(self.parties[i].output)
-                sleep(1)
-                vs = self.parties[j]._receive_unicast(self.parties[i].partyId)
-                self.parties[j].output = [
-                    self.parties[j]._decrypt(v) % p for v in vs]
+
+                self.parties[j].data['c'] = [
+                    (c + z) % p for c, z in zip(self.parties[j].data['c'], self.parties[j].output)]
                 print(self.parties[j].output)
 
+        for i in range(n):
+            self.parties[i].input3 = self.parties[i].data['c']
 
-# a -> a
-# a_s -> [a]
-# a_ -> ai
-# a_m -> [(Kia0, m0(ai)), (Kia1, m1(ai)), ...]
-# a_mk -> Kiaj
-# a_mm -> mj(ai)
+        self.share(u)
 
-# a_s = [ ..., (a_, a_m), ... ]
-# a_m = [ ..., (a_mk, a_mm), ... ]
+        # for k in range(u):
+        #     print((self.parties[0].data['c'][k] + self.parties[1].data['c']
+        #            [k] + self.parties[2].data['c'][k]) % p)
+
+    # def add_macx(self, u):
+
+        # a -> a
+        # a_s -> [a]
+        # a_ -> ai
+        # a_m -> [(Kia0, m0(ai)), (Kia1, m1(ai)), ...]
+        # a_mk -> Kiaj
+        # a_mm -> mj(ai)
+
+        # a_s = [ ..., (a_, a_m), ... ]
+        # a_m = [ ..., (a_mk, a_mm), ... ]
 
 
 class BDOZParty(Party):
@@ -184,6 +200,8 @@ class BDOZParty(Party):
         self.data = {}
         self.output = []
         self.input = []
+        self.input2 = []
+        self.input3 = []
         super().__init__(*args)
 
     def _get_messages(self):
