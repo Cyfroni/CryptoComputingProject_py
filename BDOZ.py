@@ -109,7 +109,6 @@ class Env:
 
     def __init__(self, n):
         self.parties = parties_init(n, BDOZParty)
-        # self.varid = 0
         sleep(1)
 
     def share(self, u):
@@ -128,11 +127,12 @@ class Env:
 
             party.output = xk
 
-        # self.varid += u
-
     def mult_2(self, u, i, j):
-        a = [ak[i] for ak in self.parties[i].input[:u]]
-        b = [bk[j] for bk in self.parties[i].input[u:]]
+        # a = [ak[i] for ak in self.parties[i].input[:u]]
+        # b = [bk[j] for bk in self.parties[i].input[u:]]
+
+        a = self.parties[i].input2[:u]
+        b = self.parties[i].input2[u:]
 
         rs = randints(u)
         C = [(self.parties[i].data["shares"][0][k] * b[k] + self.parties[i]._encrypt(rs[k], self.parties[j].pk))
@@ -160,15 +160,18 @@ class Env:
                 if i == j:
                     continue
 
+                self.parties[i].input2 = self.parties[j].input2 = \
+                    [ak[i] for ak in self.parties[i].input]
+
                 self.mult_2(u, i, j)
 
                 self.parties[i].data['c'] = [
                     (c + z) % p for c, z in zip(self.parties[i].data['c'], self.parties[i].output)]
-                print(self.parties[i].output)
+                # print(self.parties[i].output)
 
                 self.parties[j].data['c'] = [
                     (c + z) % p for c, z in zip(self.parties[j].data['c'], self.parties[j].output)]
-                print(self.parties[j].output)
+                # print(self.parties[j].output)
 
         for i in range(n):
             self.parties[i].input3 = self.parties[i].data['c']
@@ -179,7 +182,43 @@ class Env:
         #     print((self.parties[0].data['c'][k] + self.parties[1].data['c']
         #            [k] + self.parties[2].data['c'][k]) % p)
 
-    # def add_macx(self, u):
+    def add_macx(self, u):
+
+        for party in self.parties:
+            party.data["alpha"] = randints(n)
+
+        for i in range(n):
+            for j in range(n):
+                if i == j:
+                    continue
+
+                alpha = self.parties[i].data["alpha"][j]
+
+                alpha_enc = self.parties[i]._encrypt(alpha)
+
+                shares = self.parties[i].data["shares"][0]
+
+                shares_enc = [
+                    self.parties[i]._encrypt(share, self.parties[j].pk) for share in shares
+                ]
+
+                self.parties[i].input2 = self.parties[j].input2 = \
+                    [alpha_enc] * u + self.parties[i].data["shares"][0]
+
+                self.mult_2(u, i, j)
+
+                bethas = [-r % p for r in self.parties[i].output]
+
+                self.parties[i].data[f'mac{j}'] = \
+                    (shares[j], (alpha, bethas))
+
+                self.parties[j].data[f'mac2{i}'] = \
+                    (shares[j], self.parties[j].output)
+                # print(self.parties[i].output)
+
+                # self.parties[j].data['c'] = [
+                #     (c + z) % p for c, z in zip(self.parties[j].data['c'], self.parties[j].output)]
+                # print(self.parties[j].output)
 
         # a -> a
         # a_s -> [a]
@@ -203,6 +242,16 @@ class BDOZParty(Party):
         self.input2 = []
         self.input3 = []
         super().__init__(*args)
+
+    def __repr__(self):
+        return f"""
+        ## {self.partyId} ##
+        data: {self.data}
+        output: {self.output}
+        input: {self.input}
+        input2: {self.input2}
+        input3: {self.input3}
+        """
 
     def _get_messages(self):
         messages = self.serv.received_data
@@ -348,8 +397,10 @@ if __name__ == "__main__":
     env = Env(n)
     # env.share(5)
     env.mult_n(4)
+    env.add_macx(4)
     # test_offline()
     # test_online()
+    print(env.parties)
 
 
 # print(*partys[0].triples(), sep="\n")
