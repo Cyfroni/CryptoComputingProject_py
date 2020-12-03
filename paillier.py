@@ -13,12 +13,20 @@ def sampleGen(n):
     return g
 
 
-def keyGen(sbit):
+def genPrimes(sbit):
     p = integer.randprime(int(sbit/2))
     q = integer.randprime(int(sbit/2))
     while integer.gcd(p*q, (p-1)*(q-1)) != 1:
         p = integer.randprime(int(sbit/2))
         q = integer.randprime(int(sbit/2))
+
+    return p, q
+
+
+def keyGen(sbit, primes):
+
+    p, q = primes if primes else genPrimes()
+
     n = p * q
     n2 = n * n
 
@@ -33,7 +41,8 @@ def keyGen(sbit):
 
 def encrypt(m, n, g):
     if m < 0 or m >= n:
-        raise Exception("message m must be not less than 0 and less than n")
+        raise Exception(
+            f"message m must be not less than 0 and less than n\nm:({m})\n")
 
     r = random.randint(1, n - 1)
     n2 = int(n**2)
@@ -50,7 +59,7 @@ def decrypt(c, n, g, lamb, miu):
     if integer.gcd(c, n2) != 1:
         print("error")
     if c < 1 or c >= n2 or integer.gcd(c, n2) != 1:
-        raise Exception("cipher c must be in Group Z_*_n^2")
+        raise Exception(f"cipher c must be in Group Z_*_n^2\nc:({c})\nn:({n})")
     m_bar = integer.mod(funcL(integer.fast_pow(c, lamb, n2), n) * miu, n)
     return m_bar
 

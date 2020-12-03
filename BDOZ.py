@@ -1,10 +1,26 @@
 import random
 import paillier
+import re
 from time import sleep
 from party import Party, parties_init
 
-paillier.encrypt = lambda m, *args: m
-paillier.decrypt = lambda c, *args: c
+# paillier.encrypt = lambda m, *args: m
+# paillier.decrypt = lambda c, *args: c
+
+sbit = 256
+primes = paillier.genPrimes(sbit)
+modulo = primes[0] * primes[0] * primes[1] * primes[1]
+
+
+def reg_print(arg):
+    print(
+        re.sub(
+            r'\d{5,}',
+            "**",
+            str(arg)
+        )
+    )
+
 
 n = 3
 p = 97
@@ -206,8 +222,7 @@ class Env:
 
     def share(self, u):
         for party in self.parties:
-            xki = party.input_share if party.input_share else randints(
-                u)
+            xki = party.input_share if party.input_share else randints(u)
             Exki = [party._encrypt(x) for x in xki]
             party._broadcast(Exki)
 
@@ -227,7 +242,7 @@ class Env:
         rs = randints(u)
 
         C = [
-            (a[k] * b[k] + partyi._encrypt(rs[k], partyj.pk)) for k in range(u)
+            (partyi._decrypt(a[k]) * b[k] + partyi._encrypt(rs[k], partyj.pk)) % modulo for k in range(u)
         ]
 
         partyi._unicast(partyj.partyId, C)
@@ -236,6 +251,7 @@ class Env:
         sleep(0.1)
 
         vs = partyj._receive_unicast(partyi.partyId)
+
         partyj.output = [partyj._decrypt(v) % p for v in vs]
 
     def mult_n(self, u):
@@ -251,7 +267,8 @@ class Env:
             ]
 
             party.data['~ck'] = [
-                (aki * bki) % p for aki, bki in zip(party.data['ak'], party.data['bk'])
+                (party._decrypt(aki) * party._decrypt(bki)) %
+                p for aki, bki in zip(party.data['ak'], party.data['bk'])
             ]
 
         for partyi in self.parties:
@@ -286,7 +303,7 @@ class Env:
             party.data["alpha"][party.partyId] = None
 
             party.data['~[ak]'] = [
-                (ak, []) for ak in party.data["ak"]
+                (party._decrypt(ak), [[], []]) for ak in party.data["ak"]
             ]
 
         for partyi in self.parties:
@@ -308,7 +325,8 @@ class Env:
                 macs = partyj.output
 
                 for k in range(u):
-                    partyi.data['~[ak]'][k][1].append((keys[k], macs[k]))
+                    partyi.data['~[ak]'][k][1][0].append(keys[k])
+                    partyj.data['~[ak]'][k][1][1].append(macs[k])
 
         for party in self.parties:
             party.output = party.data['~[ak]']
@@ -370,7 +388,7 @@ class Env:
 class BDOZParty(Party):
 
     def __init__(self, *args):
-        self.sk = paillier.keyGen(10)  # n, g, lamb, miu
+        self.sk = paillier.keyGen(sbit, primes)  # n, g, lamb, miu
         self.pk = [self.sk[0], self.sk[1]]
         self.data = {}
         self.vars = []
@@ -427,12 +445,12 @@ class BDOZParty(Party):
         return list(map(int, message))
 
     def _broadcast(self, vals):
-        print(f"{self.partyId}: broadcast {vals}")
+        reg_print(f"{self.partyId}: broadcast {vals}")
         self.broadcast_message(self._to_message(vals))
 
     def _receive_broadcast(self, vals):
         messages = self._get_messages()
-        print(f"{self.partyId}: received {messages}")
+        reg_print(f"{self.partyId}: received {messages}")
 
         ret = [0] * n
 
@@ -444,12 +462,12 @@ class BDOZParty(Party):
         return ret
 
     def _unicast(self, target_id, vals):
-        print(f"{self.partyId} -> {target_id}: unicast {vals}")
+        reg_print(f"{self.partyId} -> {target_id}: unicast {vals}")
         self.unicast_message(target_id, self._to_message(vals))
 
     def _receive_unicast(self, source_id):
         message = self._get_message(source_id)
-        print(f"{self.partyId}: received {message}")
+        reg_print(f"{self.partyId}: received {message}")
 
         return self._to_vals(message)
 
@@ -505,4 +523,5 @@ if __name__ == "__main__":
         # env._clear()
 
     finally:
-        print(env.parties)
+        reg_print(env.parties)
+        pass
