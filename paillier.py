@@ -23,10 +23,8 @@ def genPrimes(sbit):
     return p, q
 
 
-def keyGen(sbit, primes):
-
-    p, q = primes if primes else genPrimes()
-
+def keyGen(sbit, primes=None):
+    p, q = primes if primes else genPrimes(sbit)
     n = p * q
     n2 = n * n
 
