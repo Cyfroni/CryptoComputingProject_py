@@ -18,6 +18,7 @@ def randints(u):
     return [randint() for _ in range(u)]
 
 
+'''
 def generate_shares(val):
     r = [randint() for _ in range(n - 1)]
     return [(val - sum(r)) % p] + r
@@ -29,6 +30,15 @@ def calc_MAC(key, a):
 
 
 class Offline:
+    # a -> a
+    # a_s -> [a]
+    # a_ -> ai
+    # a_m -> [(Kia0, m0(ai)), (Kia1, m1(ai)), ...]
+    # a_mk -> Kiaj
+    # a_mm -> mj(ai)
+
+    # a_s = [ ..., (a_, a_m), ... ]
+    # a_m = [ ..., (a_mk, a_mm), ... ]
 
     @staticmethod
     def opening(a_s, j):
@@ -105,224 +115,6 @@ def multiply(x_s, y_s, triple, j):
     return Offline.addition(z0_s, z1_s)
 
 
-class Env:
-
-    def __init__(self, n):
-        self.parties = parties_init(n, BDOZParty)
-        sleep(1)
-
-    def share(self, u):
-        for party in self.parties:
-            xs = party.input3 if party.input3 else randints(u)
-            xs_en = [party._encrypt(x) for x in xs]
-            party._broadcast(xs_en)
-
-            party.data["shares"] = (xs, xs_en)
-
-        sleep(1)
-
-        for party in self.parties:
-            data = party._receive_broadcast(party.data["shares"][1])
-            xk = list(zip(*data))
-
-            party.output = xk
-
-    def mult_2(self, u, i, j):
-        # a = [ak[i] for ak in self.parties[i].input[:u]]
-        # b = [bk[j] for bk in self.parties[i].input[u:]]
-
-        a = self.parties[i].input2[:u]
-        b = self.parties[i].input2[u:]
-
-        rs = randints(u)
-        C = [(self.parties[i].data["shares"][0][k] * b[k] + self.parties[i]._encrypt(rs[k], self.parties[j].pk))
-             for k in range(u)]
-        # print(C)
-
-        self.parties[i]._unicast(self.parties[j].partyId, C)
-        self.parties[i].output = [-r % p for r in rs]
-
-        sleep(1)
-
-        vs = self.parties[j]._receive_unicast(self.parties[i].partyId)
-        self.parties[j].output = [self.parties[j]._decrypt(v) % p for v in vs]
-
-    def mult_n(self, u):
-        self.share(2 * u)
-        for party in self.parties:
-            party.input = party.output
-            party.data['c'] = [
-                (ak[party.partyId] * bk[party.partyId]) % p for ak, bk in zip(party.input[:u], party.input[u:])
-            ]
-
-        for i in range(n):
-            for j in range(n):
-                if i == j:
-                    continue
-
-                self.parties[i].input2 = self.parties[j].input2 = \
-                    [ak[i] for ak in self.parties[i].input]
-
-                self.mult_2(u, i, j)
-
-                self.parties[i].data['c'] = [
-                    (c + z) % p for c, z in zip(self.parties[i].data['c'], self.parties[i].output)]
-                # print(self.parties[i].output)
-
-                self.parties[j].data['c'] = [
-                    (c + z) % p for c, z in zip(self.parties[j].data['c'], self.parties[j].output)]
-                # print(self.parties[j].output)
-
-        for i in range(n):
-            self.parties[i].input3 = self.parties[i].data['c']
-
-        self.share(u)
-
-        # for k in range(u):
-        #     print((self.parties[0].data['c'][k] + self.parties[1].data['c']
-        #            [k] + self.parties[2].data['c'][k]) % p)
-
-    def add_macx(self, u):
-
-        for party in self.parties:
-            party.data["alpha"] = randints(n)
-
-        for i in range(n):
-            for j in range(n):
-                if i == j:
-                    continue
-
-                alpha = self.parties[i].data["alpha"][j]
-
-                alpha_enc = self.parties[i]._encrypt(alpha)
-
-                shares = self.parties[i].data["shares"][0]
-
-                shares_enc = [
-                    self.parties[i]._encrypt(share, self.parties[j].pk) for share in shares
-                ]
-
-                self.parties[i].input2 = self.parties[j].input2 = \
-                    [alpha_enc] * u + self.parties[i].data["shares"][0]
-
-                self.mult_2(u, i, j)
-
-                bethas = [-r % p for r in self.parties[i].output]
-
-                self.parties[i].data[f'mac{j}'] = \
-                    (shares[j], (alpha, bethas))
-
-                self.parties[j].data[f'mac2{i}'] = \
-                    (shares[j], self.parties[j].output)
-                # print(self.parties[i].output)
-
-                # self.parties[j].data['c'] = [
-                #     (c + z) % p for c, z in zip(self.parties[j].data['c'], self.parties[j].output)]
-                # print(self.parties[j].output)
-
-        # a -> a
-        # a_s -> [a]
-        # a_ -> ai
-        # a_m -> [(Kia0, m0(ai)), (Kia1, m1(ai)), ...]
-        # a_mk -> Kiaj
-        # a_mm -> mj(ai)
-
-        # a_s = [ ..., (a_, a_m), ... ]
-        # a_m = [ ..., (a_mk, a_mm), ... ]
-
-
-class BDOZParty(Party):
-    def __init__(self, *args):
-        self.sk = paillier.keyGen(10)  # n, g, lamb, miu
-        self.pk = [self.sk[0], self.sk[1]]
-        self.alphas = [randint() for _ in range(n)]
-        self.data = {}
-        self.output = []
-        self.input = []
-        self.input2 = []
-        self.input3 = []
-        super().__init__(*args)
-
-    def __repr__(self):
-        return f"""
-        ## {self.partyId} ##
-        data: {self.data}
-        output: {self.output}
-        input: {self.input}
-        input2: {self.input2}
-        input3: {self.input3}
-        """
-
-    def _get_messages(self):
-        messages = self.serv.received_data
-        self.serv.received_data = {}
-        return messages
-
-    def _get_message(self, source_id):
-        message = self.serv.received_data[str(source_id)]
-        self.serv.received_data[str(source_id)] = None
-        return message
-
-    def _to_message(self, vals):
-        message = " ".join(map(str, vals))
-        return [bytes(f"0 {self.partyId} {message}", 'ascii')]
-
-    def _to_vals(self, message):
-        return list(map(int, message))
-
-    def _broadcast(self, vals):
-        print(f"{self.partyId}: broadcast {vals}")
-        self.broadcast_message(self._to_message(vals))
-
-    def _receive_broadcast(self, vals):
-        messages = self._get_messages()
-        print(f"{self.partyId}: received {messages}")
-
-        ret = [0] * n
-
-        for party_id, message in messages.items():
-            ret[int(party_id)] = self._to_vals(message)
-
-        ret[self.partyId] = vals
-
-        return ret
-
-    def _unicast(self, target_id, vals):
-        print(f"{self.partyId} -> {target_id}: unicast {vals}")
-        self.unicast_message(target_id, self._to_message(vals))
-
-    def _receive_unicast(self, source_id):
-        message = self._get_message(source_id)
-        print(f"{self.partyId}: received {message}")
-
-        return self._to_vals(message)
-
-    def _encrypt(self, m, key=None):
-        key = key if key else self.pk
-        return paillier.encrypt(m, *key)
-
-    def _decrypt(self, c):
-        return paillier.decrypt(c, *self.sk)
-
-    def singles(self, a=randint()):
-        a_s = generate_shares(a)
-        messages = []
-        for i in range(n):
-            keys = [(alpha, randint()) for alpha in self.alphas]
-            macs = [calc_MAC(key, a_s[i]) for key in keys]
-            messages.append([
-                a_s[i],
-                list(zip(keys, macs))
-            ])
-        return messages
-
-    def triples(self):
-        a = randint()
-        b = randint()
-        c = (a * b) % p
-        return [self.singles(a), self.singles(b), self.singles(c)]
-
-
 def test_offline():
     party = Party()
 
@@ -391,16 +183,326 @@ def test_online():
             assert z == Offline.opening(z_s, j)
 
     print(f"[{x}] * [{y}] mod {p} = [{z}]\n")
+'''
+
+
+class Env:
+
+    def __init__(self, n):
+        self.parties = parties_init(n, BDOZParty)
+        sleep(1)
+
+    def _forward(self):
+        for party in self.parties:
+            party.input = party.output
+
+    def _clear(self):
+        for party in self.parties:
+            party.clear()
+
+    def _publish(self):
+        for party in self.parties:
+            party.triples.extend(party.output)
+
+    def share(self, u):
+        for party in self.parties:
+            xki = party.input_share if party.input_share else randints(
+                u)
+            Exki = [party._encrypt(x) for x in xki]
+            party._broadcast(Exki)
+
+            party.data["shares"] = (xki, Exki)
+
+        sleep(0.1)
+
+        for party in self.parties:
+            data = party._receive_broadcast(party.data["shares"][1])
+
+            party.output = list(zip(*data))
+
+    def mult_2(self, u, partyi, partyj):
+        a = partyi.input_mult_2
+        b = partyj.input_mult_2
+
+        rs = randints(u)
+
+        C = [
+            (a[k] * b[k] + partyi._encrypt(rs[k], partyj.pk)) for k in range(u)
+        ]
+
+        partyi._unicast(partyj.partyId, C)
+        partyi.output = [-r % p for r in rs]
+
+        sleep(0.1)
+
+        vs = partyj._receive_unicast(partyi.partyId)
+        partyj.output = [partyj._decrypt(v) % p for v in vs]
+
+    def mult_n(self, u):
+        for party in self.parties:
+            party.data['<ak>'] = party.input[:u]
+            party.data['<bk>'] = party.input[u:]
+
+            party.data['ak'] = [
+                ak[party.partyId] for ak in party.data['<ak>']
+            ]
+            party.data['bk'] = [
+                bk[party.partyId] for bk in party.data['<bk>']
+            ]
+
+            party.data['~ck'] = [
+                (aki * bki) % p for aki, bki in zip(party.data['ak'], party.data['bk'])
+            ]
+
+        for partyi in self.parties:
+            for partyj in self.parties:
+                if partyi.partyId == partyj.partyId:
+                    continue
+
+                partyi.input_mult_2 = partyi.data['ak']
+                partyj.input_mult_2 = partyj.data['bk']
+
+                self.mult_2(u, partyi, partyj)
+
+                for party in [partyi, partyj]:
+                    party.data['~ck'] = [
+                        (c + z) % p for c, z in zip(party.data['~ck'], party.output)
+                    ]
+
+        for party in self.parties:
+            party.input_share = party.data['~ck']
+
+        self.share(u)
+
+    def add_macs(self, u):
+        for party in self.parties:
+            party.data["<ak>"] = party.input
+
+            party.data["ak"] = [
+                ak[party.partyId] for ak in party.data['<ak>']
+            ]
+
+            party.data["alpha"] = randints(n)
+            party.data["alpha"][party.partyId] = None
+
+            party.data['~[ak]'] = [
+                (ak, []) for ak in party.data["ak"]
+            ]
+
+        for partyi in self.parties:
+            for partyj in self.parties:
+                if partyi.partyId == partyj.partyId:
+                    continue
+
+                alpha = partyi.data["alpha"][partyj.partyId]
+
+                alpha_enc = partyi._encrypt(alpha)
+
+                partyi.input_mult_2 = [alpha_enc] * u
+                partyj.input_mult_2 = partyj.data["ak"]
+
+                self.mult_2(u, partyi, partyj)
+
+                betas = [-r % p for r in partyi.output]
+                keys = [(alpha, beta) for beta in betas]
+                macs = partyj.output
+
+                for k in range(u):
+                    partyi.data['~[ak]'][k][1].append((keys[k], macs[k]))
+
+        for party in self.parties:
+            party.output = party.data['~[ak]']
+
+    def singles(self, u):
+
+        self.share(u)
+
+        self._forward()
+
+        self.add_macs(u)
+
+    def triples(self, u):
+        self.share(4 * u)
+
+        for party in self.parties:
+            party.data["<ak>"] = party.output[:u]
+            party.data["<bk>"] = party.output[u:(2*u)]
+            party.data["<fk>"] = party.output[(2*u):(3*u)]
+            party.data["<gk>"] = party.output[(3*u):]
+
+            party.input = party.data["<ak>"] + party.data["<bk>"]
+
+        self.mult_n(u)
+
+        for party in self.parties:
+            party.data["<ck>"] = party.output
+            party.input = party.data["<fk>"] + party.data["<gk>"]
+
+        self.mult_n(u)
+
+        for party in self.parties:
+            party.data["<hk>"] = party.output
+
+            party.input = party.data["<ak>"] + party.data["<bk>"] + party.data["<ck>"] + \
+                party.data["<fk>"] + party.data["<gk>"] + party.data["<hk>"]
+
+        self.add_macs(6 * u)
+
+        for party in self.parties:
+            party.data["[ak]"] = party.output[:u]
+            party.data["[bk]"] = party.output[u:(2*u)]
+            party.data["[ck]"] = party.output[(2*u):(3*u)]
+            party.data["[fk]"] = party.output[(3*u):(4*u)]
+            party.data["[gk]"] = party.output[(4*u):(5*u)]
+            party.data["[hk]"] = party.output[(5*u):]
+
+            # TODO: check
+
+            party.output = [
+                (a, b, c) for a, b, c in zip(
+                    party.data["[ak]"],
+                    party.data["[bk]"],
+                    party.data["[ck]"]
+                )
+            ]
+
+
+class BDOZParty(Party):
+
+    def __init__(self, *args):
+        self.sk = paillier.keyGen(10)  # n, g, lamb, miu
+        self.pk = [self.sk[0], self.sk[1]]
+        self.data = {}
+        self.vars = []
+        self.triples = []
+        self.input_share = None
+        self.input_mult_2 = None
+        self.input = None
+        self.output = []
+        super().__init__(*args)
+
+    def __repr__(self):
+        return f"""
+
+
+        ## {self.partyId} ##
+        data: {self.data}
+
+        input_share: {self.input_share}
+        input_mult_2: {self.input_mult_2}
+        input: {self.input}
+        output: {self.output}
+
+        vars({len(self.vars)}): {self.vars}
+        triples({len(self.triples)}): {self.triples}
+        """
+
+    def full_clear(self):
+        self.vars = []
+        self.triples = []
+        self.output = []
+        self.clear()
+
+    def clear(self):
+        self.data = {}
+        self.input_share = None
+        self.input_mult_2 = None
+        self.input = None
+
+    def _get_messages(self):
+        messages = self.serv.received_data
+        self.serv.received_data = {}
+        return messages
+
+    def _get_message(self, source_id):
+        message = self.serv.received_data[str(source_id)]
+        self.serv.received_data[str(source_id)] = None
+        return message
+
+    def _to_message(self, vals):
+        message = " ".join(map(str, vals))
+        return [bytes(f"0 {self.partyId} {message}", 'ascii')]
+
+    def _to_vals(self, message):
+        return list(map(int, message))
+
+    def _broadcast(self, vals):
+        print(f"{self.partyId}: broadcast {vals}")
+        self.broadcast_message(self._to_message(vals))
+
+    def _receive_broadcast(self, vals):
+        messages = self._get_messages()
+        print(f"{self.partyId}: received {messages}")
+
+        ret = [0] * n
+
+        for party_id, message in messages.items():
+            ret[int(party_id)] = self._to_vals(message)
+
+        ret[self.partyId] = vals
+
+        return ret
+
+    def _unicast(self, target_id, vals):
+        print(f"{self.partyId} -> {target_id}: unicast {vals}")
+        self.unicast_message(target_id, self._to_message(vals))
+
+    def _receive_unicast(self, source_id):
+        message = self._get_message(source_id)
+        print(f"{self.partyId}: received {message}")
+
+        return self._to_vals(message)
+
+    def _encrypt(self, m, key=None):
+        key = key if key else self.pk
+        return paillier.encrypt(m, *key)
+
+    def _decrypt(self, c):
+        return paillier.decrypt(c, *self.sk)
+
+    # def singles(self, a=randint()):
+    #     a_s = generate_shares(a)
+    #     messages = []
+    #     for i in range(n):
+    #         keys = [(alpha, randint()) for alpha in self.alphas]
+    #         macs = [calc_MAC(key, a_s[i]) for key in keys]
+    #         messages.append([
+    #             a_s[i],
+    #             list(zip(keys, macs))
+    #         ])
+    #     return messages
+
+    # def triples(self):
+    #     a = randint()
+    #     b = randint()
+    #     c = (a * b) % p
+    #     return [self.singles(a), self.singles(b), self.singles(c)]
 
 
 if __name__ == "__main__":
+
     env = Env(n)
-    # env.share(5)
-    env.mult_n(4)
-    env.add_macx(4)
-    # test_offline()
-    # test_online()
-    print(env.parties)
+    try:
+        # env.share(8)
+        # env._forward()
+        # env.mult_n(4)
+        # env._forward()
+        # env.add_macs(4)
+        # env._clear()
 
+        # env.singles(4)
+        # env._clear()
 
-# print(*partys[0].triples(), sep="\n")
+        env.triples(4)
+        env._publish()
+        env._clear()
+
+        # env.triples(4)
+        # env._publish()
+        # env._clear()
+        # env.triples(6)
+        # env._publish()
+        # env._clear()
+
+    finally:
+        print(env.parties)
