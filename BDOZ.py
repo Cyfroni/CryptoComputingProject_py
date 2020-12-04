@@ -1,29 +1,28 @@
 import random
 import paillier
 import re
+import math
 from time import sleep
 from party import Party, parties_init
 
 # paillier.encrypt = lambda m, *args: m
 # paillier.decrypt = lambda c, *args: c
 
-sbit = 256
+sbit = 32
 primes = paillier.genPrimes(sbit)
 modulo = primes[0] * primes[0] * primes[1] * primes[1]
 
+n = 3
+p = primes[0] * primes[1]
+
 
 def reg_print(arg):
-    print(
-        re.sub(
-            r'\d{5,}',
-            "**",
-            str(arg)
-        )
-    )
+    limit = math.ceil(math.log10(p)) + 1
+    reg = "\d{" + str(limit) + ",}"
 
+    arg = re.sub(reg, "**", str(arg))
 
-n = 3
-p = 97
+    print(arg)
 
 
 def randint():
@@ -450,7 +449,7 @@ class BDOZParty(Party):
 
     def _receive_broadcast(self, vals):
         messages = self._get_messages()
-        reg_print(f"{self.partyId}: received {messages}")
+        # reg_print(f"{self.partyId}: received {messages}")
 
         ret = [0] * n
 
@@ -467,7 +466,7 @@ class BDOZParty(Party):
 
     def _receive_unicast(self, source_id):
         message = self._get_message(source_id)
-        reg_print(f"{self.partyId}: received {message}")
+        # reg_print(f"{self.partyId}: received {message}")
 
         return self._to_vals(message)
 
@@ -524,4 +523,5 @@ if __name__ == "__main__":
 
     finally:
         reg_print(env.parties)
+        print(p)
         pass
