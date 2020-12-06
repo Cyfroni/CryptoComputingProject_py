@@ -5,17 +5,15 @@ import math
 from time import sleep
 from party import Party, parties_init
 
-num_parties = 3
-
 
 # paillier.encrypt = lambda m, *args: m
 # paillier.decrypt = lambda c, *args: c
 
 # sbit = 256
-# primes = paillier.genPrimes(sbit)
-
 sbit = 4
+# primes = paillier.genPrimes(sbit)
 primes = (5, 7)
+
 n = primes[0] * primes[1]
 n2 = n * n
 
@@ -37,17 +35,6 @@ def randints(u):
     return [randint() for _ in range(u)]
 
 
-'''
-def generate_shares(val):
-    r = [randint() for _ in range(num_parties - 1)]
-    return [(val - sum(r)) % n] + r
-
-
-def calc_MAC(key, a):
-    alpha, beta = key
-    return (alpha * a + beta) % n
-
-
 class Offline:
     # a -> a
     # a_s -> [a]
@@ -60,149 +47,77 @@ class Offline:
     # a_m = [ ..., (a_mk, a_mm), ... ]
 
     @staticmethod
-    def opening(a_s, j):
-        a = 0
-        for a_, a_m in a_s:
-            key, mac = a_m[j]
+    def addKeys(ak, bk):
+        a_alpha, a_beta = ak
+        b_alpha, b_beta = bk
 
-            assert calc_MAC(key, a_) == mac
+        assert a_alpha == b_alpha
 
-            a += a_
-        return a % n
+        return (a_alpha, (a_beta + b_beta) % n)
+
+    @staticmethod
+    def keys_mult_const(k, c):
+        alpha, beta = k
+        return (alpha, (beta * c) % n)
 
     @staticmethod
     def addition(a_s, b_s):
-        c_s = []
-        for (a_, a_m), (b_, b_m) in zip(a_s, b_s):
-            c_ = (a_ + b_) % n
-            c_m = []
-            for (a_mk, a_mm), (b_mk, b_mm) in zip(a_m, b_m):
-                assert a_mk[0] == b_mk[0]  # check consistency
-                c_mk = (a_mk[0], (a_mk[1] + b_mk[1]) % n)
-                c_mm = (a_mm + b_mm) % n
-                c_m.append((c_mk, c_mm))
-            c_s.append((c_, c_m))
+        a_, (aks, ams) = a_s
+        b_, (bks, bms) = b_s
 
-        return c_s
+        r_ = (a_ + b_) % n
+
+        rks = [
+            Offline.addKeys(ak, bk) for ak, bk in zip(aks, bks)
+        ]
+
+        rms = [
+            (am + bm) % n for am, bm in zip(ams, bms)
+        ]
+
+        return (r_, (rks, rms))
 
     @staticmethod
     def mult_const(a_s, c):
-        r_s = []
-        for (a_, a_m) in a_s:
-            r_ = (a_ * c) % n
-            r_m = []
-            for (a_mk, a_mm) in a_m:
-                r_mk = (a_mk[0], (a_mk[1] * c) % n)
-                r_mm = (a_mm * c) % n
-                r_m.append((r_mk, r_mm))
-            r_s.append((r_, r_m))
+        a_, (aks, ams) = a_s
 
-        return r_s
+        r_ = (a_ * c) % n
+
+        rks = [
+            Offline.keys_mult_const(ak, c) for ak in aks
+        ]
+
+        rms = [
+            (am * c) % n for am in ams
+        ]
+
+        return (r_, (rks, rms))
 
     @staticmethod
-    def addition_const(a_s, c):
-        r_s = []
-        for i, (a_, a_m) in enumerate(a_s):
-            r_ = (a_ + c) % n if i == 0 else a_
-            r_m = []
-            for j, (a_mk, a_mm) in enumerate(a_m):
-                r_mk = (
-                    a_mk[0],
-                    (a_mk[1] - c * a_mk[0]) % n if i == 0 else a_mk[1]
-                )
-                r_mm = a_mm
-                r_m.append((r_mk, r_mm))
-            r_s.append((r_, r_m))
+    def addition_const_1(a_s, c):
+        a_, (aks, ams) = a_s
 
-        return r_s
+        r_ = (a_ + c) % n
 
+        rks = aks[:]
 
-def multiply(x_s, y_s, triple, j):
-    a_s, b_s, c_s = triple
+        rms = ams[:]
 
-    epsilon_s = Offline.addition(x_s, Offline.mult_const(a_s, -1))
-    epsilon = Offline.opening(epsilon_s, j)
-    rho_s = Offline.addition(y_s, Offline.mult_const(b_s, -1))
-    rho = Offline.opening(rho_s, j)
+        return (r_, (rks, rms))
 
-    z0_s = Offline.addition(c_s, Offline.mult_const(b_s, epsilon))
-    z1_s = Offline.addition_const(
-        Offline.mult_const(a_s, rho),
-        (rho * epsilon) % n
-    )
+    @staticmethod
+    def addition_const_2(a_s, c):
+        a_, (aks, ams) = a_s
 
-    return Offline.addition(z0_s, z1_s)
+        r_ = a_
 
+        rks = aks[:]
+        alpha, beta = rks[0]
+        rks[0] = (alpha, (beta - c * alpha) % n)
 
-def test_offline():
-    party = Party()
+        rms = ams[:]
 
-    # opening
-    print(f"opening_test")
-    a = randint()
-    a_s = party.singles(a)
-
-    for i in range(num_parties):
-        assert a == Offline.opening(a_s, i)
-    print(a, "\n")
-
-    # addition
-    print(f"addition_test")
-    a = randint()
-    b = randint()
-    c = (a + b) % n
-    a_s = party.singles(a)
-    b_s = party.singles(b)
-    c_s = Offline.addition(a_s, b_s)
-
-    for i in range(num_parties):
-        assert c == Offline.opening(c_s, i)
-    print(f"[{a}] + [{b}] mod {p} = [{c}]\n")
-
-    # mult_const
-    print(f"mult_const_test")
-    a = randint()
-    b = randint()
-    r = (a * b) % n
-    a_s = party.singles(a)
-    r_s = Offline.mult_const(a_s, b)
-
-    for i in range(num_parties):
-        assert r == Offline.opening(r_s, i)
-    print(f"[{a}] * {b} mod {p} = [{r}]\n")
-
-    # addition_const
-    print(f"addition_const_test")
-    a = randint()
-    b = randint()
-    r = (a + b) % n
-    a_s = party.singles(a)
-    r_s = Offline.addition_const(a_s, b)
-
-    for i in range(num_parties):
-        assert r == Offline.opening(r_s, i)
-    print(f"[{a}] + {b} mod {p} = [{r}]\n")
-
-
-def test_online():
-    party = Party()
-    triple = party.triples()
-
-    # mult
-    print("mult_test")
-    x = randint()
-    y = randint()
-    z = (x * y) % n
-    x_s = party.singles(x)
-    y_s = party.singles(y)
-
-    for i in range(num_parties):
-        z_s = multiply(x_s, y_s, triple, i)
-        for j in range(num_parties):
-            assert z == Offline.opening(z_s, j)
-
-    print(f"[{x}] * [{y}] mod {p} = [{z}]\n")
-'''
+        return (r_, (rks, rms))
 
 
 def slow_pow(a, p):
@@ -227,9 +142,13 @@ class Env:
         for party in self.parties:
             party.clear()
 
-    def _publish(self):
+    def _publish_triples(self):
         for party in self.parties:
             party.triples.extend(party.output)
+
+    def _publish_singles(self):
+        for party in self.parties:
+            party.vars.extend(party.output)
 
     def share(self, u):
         for party in self.parties:
@@ -310,11 +229,11 @@ class Env:
                 ak[party.partyId] for ak in party.data['<ak>']
             ]
 
-            party.data["alpha"] = randints(num_parties)
+            party.data["alpha"] = randints(len(self.parties))
             party.data["alpha"][party.partyId] = None
 
             party.data['~[ak]'] = [
-                (party._decrypt(ak), [[], []]) for ak in party.data["ak"]
+                (party._decrypt(ak), ([], [])) for ak in party.data["ak"]
             ]
 
         for partyi in self.parties:
@@ -394,19 +313,50 @@ class Env:
                 )
             ]
 
-    # def opening(self, varid, target_party):
-    #     for party in self.parties:
-    #         if target_party.partyId == party.partyId:
-    #             continue
+    def opening(self, varid, target_party):
+        for party in self.parties:
+            if target_party.partyId == party.partyId:
+                continue
 
-    #         m = party.vars[varid]
+            m = party.vars[varid]
 
-    #         party._unicast(target_party.partyId, m)
+            party._unicast(target_party.partyId, [m[0]])
 
-    #     for party in self.parties:
-    #         if target_party.partyId == party.partyId:
-    #             continue
-    #         target_party._unicast_receive(party.partyId)
+        sleep(0.1)
+        value = 0
+
+        for party in self.parties:
+            if target_party.partyId == party.partyId:
+                value = (value + target_party.vars[varid][0]) % n
+                continue
+            m = target_party._receive_unicast(party.partyId)
+            value = (value + m[0]) % n
+        print(f"#{target_party.partyId} varid({varid}) = {value}")
+
+    def addition(self, varid1, varid2):
+        for party in self.parties:
+
+            a1 = party.vars[varid1]
+            a2 = party.vars[varid2]
+
+            party.vars.append(Offline.addition(a1, a2))
+
+    def mult_const(self, varid, c):
+        for party in self.parties:
+
+            a = party.vars[varid]
+
+            party.vars.append(Offline.mult_const(a, c))
+
+    def addition_const(self, varid, c):
+        for party in self.parties:
+
+            a = party.vars[varid]
+
+            if party.partyId == 0:
+                party.vars.append(Offline.addition_const_1(a, c))
+            else:
+                party.vars.append(Offline.addition_const_2(a, c))
 
 
 class BDOZParty(Party):
@@ -469,14 +419,14 @@ class BDOZParty(Party):
         return list(map(int, message))
 
     def _broadcast(self, vals):
-        reg_print(f"{self.partyId}: broadcast {vals}")
+        # reg_print(f"{self.partyId}: broadcast {vals}")
         self.broadcast_message(self._to_message(vals))
 
     def _receive_broadcast(self, vals):
         messages = self._get_messages()
         # reg_print(f"{self.partyId}: received {messages}")
 
-        ret = [0] * num_parties
+        ret = [0] * (len(messages) + 1)
 
         for party_id, message in messages.items():
             ret[int(party_id)] = self._to_vals(message)
@@ -486,7 +436,7 @@ class BDOZParty(Party):
         return ret
 
     def _unicast(self, target_id, vals):
-        reg_print(f"{self.partyId} -> {target_id}: unicast {vals}")
+        # reg_print(f"{self.partyId} -> {target_id}: unicast {vals}")
         self.unicast_message(target_id, self._to_message(vals))
 
     def _receive_unicast(self, source_id):
@@ -502,44 +452,70 @@ class BDOZParty(Party):
     def _decrypt(self, c):
         return paillier.decrypt(c, *self.sk)
 
-    # def singles(self, a=randint()):
-    #     a_s = generate_shares(a)
-    #     messages = []
-    #     for i in range(num_parties):
-    #         keys = [(alpha, randint()) for alpha in self.alphas]
-    #         macs = [calc_MAC(key, a_s[i]) for key in keys]
-    #         messages.append([
-    #             a_s[i],
-    #             list(zip(keys, macs))
-    #         ])
-    #     return messages
 
-    # def triples(self):
-    #     a = randint()
-    #     b = randint()
-    #     c = (a * b) % n
-    #     return [self.singles(a), self.singles(b), self.singles(c)]
+def test_triples():
+    num_parties = 3
+    env = Env(num_parties)
+
+    try:
+        env.triples(4)
+        env._publish_triples()
+        env._clear()
+    except e:
+        print(e)
+    finally:
+        reg_print(env.parties)
+
+
+def test_arit():
+    num_parties = 3
+    env = Env(num_parties)
+
+    try:
+        env.singles(2)
+        env._publish_singles()
+        env._clear()
+
+        for i in range(num_parties):
+            env.opening(0, env.parties[i])
+            env.opening(1, env.parties[i])
+
+        print("\n (0) + (1)")
+        env.addition(0, 1)
+        for i in range(num_parties):
+            env.opening(2, env.parties[i])
+
+        print("\n (0) * 3")
+        env.mult_const(0, 3)
+        for i in range(num_parties):
+            env.opening(3, env.parties[i])
+
+        print("\n (1) + 5")
+        env.addition_const(1, 5)
+        for i in range(num_parties):
+            env.opening(4, env.parties[i])
+
+    except e:
+        print(e)
+    finally:
+        reg_print(env.parties)
+
+
+def test():
+    num_parties = 3
+    env = Env(num_parties)
+
+    try:
+        pass
+    except e:
+        print(e)
+    finally:
+        reg_print(env.parties)
 
 
 if __name__ == "__main__":
 
-    env = Env(num_parties)
-    try:
-        # env.share(8)
-        # env._forward()
-        # env.mult_n(4)
-        # env._forward()
-        # env.add_macs(4)
-        # env._clear()
-
-        # env.singles(4)
-        # env._clear()
-
-        env.triples(1)
-        env._publish()
-        env._clear()
-
-    finally:
-        reg_print(env.parties)
-        print(n)
-        pass
+    # test()
+    # test_triples()
+    # test_arit()
+    print(f"n: {n}")
