@@ -68,6 +68,15 @@ def plaintextAdd(c1, c2, n, g):
     return c_
 
 
+def slow_pow(a, p, n, g):
+    n2 = n*n
+    ret = 1
+    for _ in range(p):
+        ret = (ret * a) % n2
+
+    return ret
+
+
 if __name__ == "__main__":
     # import time
 
@@ -82,15 +91,18 @@ if __name__ == "__main__":
     # tend = time.time()
     # print("average time: " + str((tend - tstart) / 2))
     c_ = plaintextAdd(c1, c2, n, g)
+    c2_ = slow_pow(c_, 10, n, g)
     # tstart = time.time()
     m1 = decrypt(c1, n, g, l, m)
     m2 = decrypt(c2, n, g, l, m)
     m_bar = decrypt(c_, n, g, l, m)
+    m_bar2 = decrypt(c2_, n, g, l, m)
     # tend = time.time()
     # print("c1:    " + str(c1))
     # print("c2:    " + str(c2))
     # print("c_:    " + str(c_))
-    print("m1:    " + str(m1))
-    print("m2:    " + str(m2))
-    print("m_bar: " + str(m_bar))
+    print("m1:          " + str(m1))
+    print("m2:          " + str(m2))
+    print("m1+m2:       " + str(m_bar))
+    print("10*(m1+m2):  " + str(m_bar2))
     # print("average time: " + str((tend - tstart) / 3))
