@@ -22,7 +22,7 @@ def reg_print(arg):
     limit = math.ceil(math.log10(n)) + 1
     reg = "\d{" + str(limit) + ",}"
 
-    arg = re.sub(reg, "**", str(arg))
+    # arg = re.sub(reg, "**", str(arg))
 
     print(arg)
 
@@ -318,20 +318,38 @@ class Env:
             if target_party.partyId == party.partyId:
                 continue
 
-            m = party.vars[varid]
+            a_s = party.vars[varid]
+            a_, (_, ams) = a_s
 
-            party._unicast(target_party.partyId, [m[0]])
+            j = target_party.partyId
+            if j > party.partyId:
+                j -= 1
+
+            m = (a_, ams[j])
+
+            party._unicast(target_party.partyId, m)
 
         sleep(0.1)
+        a_, (aks, _) = target_party.vars[varid]
         value = 0
 
         for party in self.parties:
             if target_party.partyId == party.partyId:
-                value = (value + target_party.vars[varid][0]) % n
+                value = (value + a_) % n
                 continue
-            m = target_party._receive_unicast(party.partyId)
-            value = (value + m[0]) % n
-        print(f"#{target_party.partyId} varid({varid}) = {value}")
+            v_, m = target_party._receive_unicast(party.partyId)
+
+            j = party.partyId
+            if j > target_party.partyId:
+                j -= 1
+
+            alpha, beta = aks[j]
+
+            assert m == (alpha * v_ + beta) % n
+
+            value = (value + v_) % n
+
+        return value
 
     def addition(self, varid1, varid2):
         for party in self.parties:
@@ -461,10 +479,17 @@ def test_triples():
         env.triples(4)
         env._publish_triples()
         env._clear()
-    except e:
+    except Exception as e:
         print(e)
     finally:
         reg_print(env.parties)
+
+
+def open_with_assert(env, varid):
+    var = env.opening(varid, env.parties[0])
+    for party in env.parties:
+        assert var == env.opening(varid, party)
+    return var
 
 
 def test_arit():
@@ -476,26 +501,27 @@ def test_arit():
         env._publish_singles()
         env._clear()
 
-        for i in range(num_parties):
-            env.opening(0, env.parties[i])
-            env.opening(1, env.parties[i])
+        a = open_with_assert(env, 0)
+        b = open_with_assert(env, 1)
 
-        print("\n (0) + (1)")
         env.addition(0, 1)
-        for i in range(num_parties):
-            env.opening(2, env.parties[i])
+        _r1 = open_with_assert(env, 2)
+        assert (a + b) % n == _r1
+        print(f"[{a}] + [{b}] = [{_r1}] mod {n}")
 
-        print("\n (0) * 3")
-        env.mult_const(0, 3)
-        for i in range(num_parties):
-            env.opening(3, env.parties[i])
+        r = randint()
+        env.mult_const(0, r)
+        _r2 = open_with_assert(env, 3)
+        assert (a * r) % n == _r2
+        print(f"[{a}] * {r} = [{_r2}] mod {n}")
 
-        print("\n (1) + 5")
-        env.addition_const(1, 5)
-        for i in range(num_parties):
-            env.opening(4, env.parties[i])
+        r = randint()
+        env.addition_const(1, r)
+        _r3 = open_with_assert(env, 4)
+        assert (b + r) % n == _r3
+        print(f"[{b}] + {r} = [{_r3}] mod {n}")
 
-    except e:
+    except Exception as e:
         print(e)
     finally:
         reg_print(env.parties)
@@ -507,7 +533,7 @@ def test():
 
     try:
         pass
-    except e:
+    except Exception as e:
         print(e)
     finally:
         reg_print(env.parties)
@@ -517,5 +543,5 @@ if __name__ == "__main__":
 
     # test()
     # test_triples()
-    # test_arit()
+    test_arit()
     print(f"n: {n}")
