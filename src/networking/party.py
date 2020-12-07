@@ -5,8 +5,7 @@ import sys
 import types
 from threading import Thread
 
-import server
-import client
+from . import client
 
 HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
 PORT = 65432  # Port to listen on (non-privileged ports are > 1023)
@@ -16,7 +15,7 @@ def print(*args, **kwargs): pass
 
 
 class Party:
-    def __init__(self, serv, partyId, otherServers, message):
+    def connect(self, serv, partyId, otherServers, message):
         self.serv = serv
         self.client = None
         self.partyId = partyId
@@ -62,30 +61,9 @@ class Party:
         finally:
             self.client.sel.close()
 
+# if __name__ == "__main__":
+#     numberOfParties = random.randint(2, 5)
+#     parties = parties_init(numberOfParties)
 
-def parties_init(numberOfParties, Class=Party):
-    servers = []
-    for i in range(0, numberOfParties):
-        serv = server.Server(HOST, PORT + i)
-        servers.append(serv)
-        serv.start()
-
-    parties = []
-    for i in range(0, numberOfParties):
-        otherServers = servers[:]
-        otherServers.remove(servers[i])
-        party = Class(servers[i], i, otherServers, None)
-        print("Server: ", (party.serv.HOST, party.serv.PORT),
-              "\tIndex: ", party.partyId)
-        [print("\tOther servers:", (i.HOST, i.PORT)) for i in otherServers]
-        parties.append(party)
-
-    return parties
-
-
-if __name__ == "__main__":
-    numberOfParties = random.randint(2, 5)
-    parties = parties_init(numberOfParties)
-
-    for i in range(0, numberOfParties):
-        parties[i].start_client(random.randint(0, numberOfParties - 2))
+#     for i in range(0, numberOfParties):
+#         parties[i].start_client(random.randint(0, numberOfParties - 2))

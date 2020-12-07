@@ -1,4 +1,4 @@
-import integer
+from . import integer
 import random
 
 
