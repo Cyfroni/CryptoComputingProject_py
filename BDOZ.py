@@ -9,10 +9,10 @@ from party import Party, parties_init
 # paillier.encrypt = lambda m, *args: m
 # paillier.decrypt = lambda c, *args: c
 
-# sbit = 256
-sbit = 4
-# primes = paillier.genPrimes(sbit)
-primes = (5, 7)
+sbit = 16
+# sbit = 4
+primes = paillier.genPrimes(sbit)
+# primes = (5, 7)
 
 n = primes[0] * primes[1]
 n2 = n * n
@@ -134,23 +134,15 @@ class Env:
         self.parties = parties_init(num_parties, BDOZParty)
         sleep(1)
 
-    def _forward(self):
+    def __forward(self):
         for party in self.parties:
             party.input = party.output
 
-    def _clear(self):
+    def __clear(self):
         for party in self.parties:
             party.clear()
 
-    def _publish_triples(self):
-        for party in self.parties:
-            party.triples.extend(party.output)
-
-    def _publish_singles(self):
-        for party in self.parties:
-            party.vars.extend(party.output)
-
-    def share(self, u):
+    def _share(self, u):
         for party in self.parties:
             xki = party.input_share if party.input_share else randints(u)
             Exki = [party._encrypt(x) for x in xki]
@@ -165,7 +157,7 @@ class Env:
 
             party.output = list(zip(*data))
 
-    def mult_2(self, u, partyi, partyj):
+    def _mult_2(self, u, partyi, partyj):
         a = partyi.input_mult_2
         b = partyj.input_mult_2
 
@@ -184,21 +176,21 @@ class Env:
 
         partyj.output = [partyj._decrypt(v) % n for v in vs]
 
-    def mult_n(self, u):
+    def _mult_n(self, u):
         for party in self.parties:
-            party.data['<ak>'] = party.input[: u]
-            party.data['<bk>'] = party.input[u:]
+            party.data['<ak>_'] = party.input[:u]
+            party.data['<bk>_'] = party.input[u:]
 
-            party.data['ak'] = [
-                ak[party.partyId] for ak in party.data['<ak>']
+            party.data['ak_'] = [
+                ak[party.partyId] for ak in party.data['<ak>_']
             ]
-            party.data['bk'] = [
-                bk[party.partyId] for bk in party.data['<bk>']
+            party.data['bk_'] = [
+                bk[party.partyId] for bk in party.data['<bk>_']
             ]
 
-            party.data['~ck'] = [
+            party.data['~ck_'] = [
                 (party._decrypt(aki) * party._decrypt(bki)) %
-                n for aki, bki in zip(party.data['ak'], party.data['bk'])
+                n for aki, bki in zip(party.data['ak_'], party.data['bk_'])
             ]
 
         for partyi in self.parties:
@@ -206,112 +198,214 @@ class Env:
                 if partyi.partyId == partyj.partyId:
                     continue
 
-                partyi.input_mult_2 = partyi.data['ak']
-                partyj.input_mult_2 = partyj.data['bk']
+                partyi.input_mult_2 = partyi.data['ak_']
+                partyj.input_mult_2 = partyj.data['bk_']
 
-                self.mult_2(u, partyi, partyj)
+                self._mult_2(u, partyi, partyj)
 
                 for party in [partyi, partyj]:
-                    party.data['~ck'] = [
-                        (c + z) % n for c, z in zip(party.data['~ck'], party.output)
+                    party.data['~ck_'] = [
+                        (c + z) % n for c, z in zip(party.data['~ck_'], party.output)
                     ]
 
         for party in self.parties:
-            party.input_share = party.data['~ck']
+            party.input_share = party.data['~ck_']
 
-        self.share(u)
+        self._share(u)
 
-    def add_macs(self, u):
+    def _add_macs(self, u):
         for party in self.parties:
-            party.data["<ak>"] = party.input
+            party.data["#<ak>"] = party.input
 
-            party.data["ak"] = [
-                ak[party.partyId] for ak in party.data['<ak>']
+            party.data["#ak"] = [
+                ak[party.partyId] for ak in party.data['#<ak>']
             ]
 
-            party.data["alpha"] = randints(len(self.parties))
-            party.data["alpha"][party.partyId] = None
+            party.data["#alpha"] = randints(len(self.parties))
+            party.data["#alpha"][party.partyId] = None
 
-            party.data['~[ak]'] = [
-                (party._decrypt(ak), ([], [])) for ak in party.data["ak"]
+            party.data['#~[ak]'] = [
+                (party._decrypt(ak), ([], [])) for ak in party.data["#ak"]
             ]
 
         for partyi in self.parties:
             for partyj in self.parties:
                 if partyi.partyId == partyj.partyId:
                     continue
-                alpha = partyi.data["alpha"][partyj.partyId]
+                alpha = partyi.data["#alpha"][partyj.partyId]
 
                 alpha_enc = partyi._encrypt(alpha)
 
                 partyi.input_mult_2 = [alpha_enc] * u
-                partyj.input_mult_2 = partyj.data["ak"]
+                partyj.input_mult_2 = partyj.data["#ak"]
 
-                self.mult_2(u, partyi, partyj)
+                self._mult_2(u, partyi, partyj)
 
                 betas = [-r % n for r in partyi.output]
                 keys = [(alpha, beta) for beta in betas]
                 macs = partyj.output
 
                 for k in range(u):
-                    partyi.data['~[ak]'][k][1][0].append(keys[k])
-                    partyj.data['~[ak]'][k][1][1].append(macs[k])
+                    partyi.data['#~[ak]'][k][1][0].append(keys[k])
+                    partyj.data['#~[ak]'][k][1][1].append(macs[k])
 
         for party in self.parties:
-            party.output = party.data['~[ak]']
+            party.output = party.data['#~[ak]']
 
     def singles(self, u):
+        if u <= 0:
+            return
 
-        self.share(u)
+        self._share(u)
 
-        self._forward()
+        self.__forward()
 
-        self.add_macs(u)
+        self._add_macs(u)
+
+        for party in self.parties:
+            party.singles.extend(party.output[:])
+
+        self.__clear()
 
     def triples(self, u):
-        self.share(4 * u)
+        if u <= 0:
+            return
+
+        self._share(4 * u)
 
         for party in self.parties:
-            party.data["<ak>"] = party.output[:u]
-            party.data["<bk>"] = party.output[u:(2*u)]
-            party.data["<fk>"] = party.output[(2*u):(3*u)]
-            party.data["<gk>"] = party.output[(3*u):]
+            party.data["_<ak>"] = party.output[:u]
+            party.data["_<bk>"] = party.output[u:(2*u)]
+            party.data["_<fk>"] = party.output[(2*u):(3*u)]
+            party.data["_<gk>"] = party.output[(3*u):]
 
-            party.input = party.data["<ak>"] + party.data["<bk>"]
+            party.input = party.data["_<ak>"] + party.data["_<bk>"]
 
-        self.mult_n(u)
-
-        for party in self.parties:
-            party.data["<ck>"] = party.output
-            party.input = party.data["<fk>"] + party.data["<gk>"]
-
-        self.mult_n(u)
+        self._mult_n(u)
 
         for party in self.parties:
-            party.data["<hk>"] = party.output
+            party.data["_<ck>"] = party.output
+            party.input = party.data["_<fk>"] + party.data["_<gk>"]
 
-            party.input = party.data["<ak>"] + party.data["<bk>"] + party.data["<ck>"] + \
-                party.data["<fk>"] + party.data["<gk>"] + party.data["<hk>"]
-
-        self.add_macs(6 * u)
+        self._mult_n(u)
 
         for party in self.parties:
-            party.data["[ak]"] = party.output[:u]
-            party.data["[bk]"] = party.output[u:(2*u)]
-            party.data["[ck]"] = party.output[(2*u):(3*u)]
-            party.data["[fk]"] = party.output[(3*u):(4*u)]
-            party.data["[gk]"] = party.output[(4*u):(5*u)]
-            party.data["[hk]"] = party.output[(5*u):]
+            party.data["_<hk>"] = party.output
 
-            # TODO: check
+            party.input = party.data["_<ak>"] + party.data["_<bk>"] + party.data["_<ck>"] + \
+                party.data["_<fk>"] + party.data["_<gk>"] + party.data["_<hk>"]
 
-            party.output = [
+        self._add_macs(6 * u)
+
+        for party in self.parties:
+            party.data["_[ak]"] = party.output[:u]
+            party.data["_[bk]"] = party.output[u:(2*u)]
+            party.data["_[ck]"] = party.output[(2*u):(3*u)]
+            party.data["_[fk]"] = party.output[(3*u):(4*u)]
+            party.data["_[gk]"] = party.output[(4*u):(5*u)]
+            party.data["_[hk]"] = party.output[(5*u):]
+
+            party.triples.extend([
                 (a, b, c) for a, b, c in zip(
-                    party.data["[ak]"],
-                    party.data["[bk]"],
-                    party.data["[ck]"]
+                    party.data["_[ak]"],
+                    party.data["_[bk]"],
+                    party.data["_[ck]"]
                 )
-            ]
+            ])
+
+        # self._share(u)
+
+        # for party in self.parties:
+        #     party.data["_[ck]"] = party.output[:]
+
+        #     party.input = party.data["_<fk>"]
+
+        # for party in self.parties:
+        #     party.data["_<ak>"] = party.output[:]
+
+        # self._share(u)
+
+        # for party in self.parties:
+        #     party.data["_<bk>"] = party.output[:]
+
+        # self._share(u)
+
+        # for party in self.parties:
+        #     party.data["_<fk>"] = party.output[:]
+
+        # self._share(u)
+
+        # for party in self.parties:
+        #     party.data["_<gk>"] = party.output[:]
+
+        #     party.input = party.data["_<ak>"] + party.data["_<bk>"]
+
+        # self._mult_n(u)
+
+        # for party in self.parties:
+        #     party.data["_<ck>"] = party.output[:]
+        #     party.input = party.data["_<fk>"] + party.data["_<gk>"]
+
+        # self._mult_n(u)
+
+        # for party in self.parties:
+        #     party.data["_<hk>"] = party.output[:]
+
+        #     party.input = party.data["_<ak>"]
+
+        # self._add_macs(u)
+
+        # for party in self.parties:
+        #     party.data["_[ak]"] = party.output[:]
+
+        #     party.input = party.data["_<bk>"]
+
+        # self._add_macs(u)
+
+        # for party in self.parties:
+        #     party.data["_[bk]"] = party.output[:]
+
+        #     party.input = party.data["_<ck>"]
+
+        # self._add_macs(u)
+
+        # for party in self.parties:
+        #     party.data["_[ck]"] = party.output[:]
+
+        #     party.input = party.data["_<fk>"]
+
+        # self._add_macs(u)
+
+        # for party in self.parties:
+        #     party.data["_[fk]"] = party.output[:]
+
+        #     party.input = party.data["_<gk>"]
+
+        # self._add_macs(u)
+
+        # for party in self.parties:
+        #     party.data["_[gk]"] = party.output[:]
+
+        #     party.input = party.data["_<hk>"]
+
+        # self._add_macs(u)
+
+        # for party in self.parties:
+        #     party.data["_[hk]"] = party.output[:]
+
+        #     # TODO: check
+
+        #     party.triples.extend([
+        #         (a, b, c) for a, b, c in zip(
+        #             party.data["_[ak]"],
+        #             party.data["_[bk]"],
+        #             party.data["_[ck]"]
+        #         )
+        #     ])
+
+        # self.__clear()
+
+    ###
 
     def opening(self, varid, target_party):
         for party in self.parties:
@@ -351,30 +445,79 @@ class Env:
 
         return value
 
-    def addition(self, varid1, varid2):
+    ###
+
+    def initialize(self, s=10, t=10):
+        self.singles(s)
+        self.triples(t)
+
+    def rand(self, varid):
+        for party in self.parties:
+            var = party.singles.pop()
+            party.vars[varid] = var
+
+    def add(self, varid1, varid2, varid3):
         for party in self.parties:
 
-            a1 = party.vars[varid1]
-            a2 = party.vars[varid2]
+            x = party.vars[varid1]
+            y = party.vars[varid2]
 
-            party.vars.append(Offline.addition(a1, a2))
+            party.vars[varid3] = Offline.addition(x, y)
 
-    def mult_const(self, varid, c):
+    def multiply(self, varid1, varid2, varid3):
         for party in self.parties:
 
-            a = party.vars[varid]
+            x = party.vars[varid1]
 
-            party.vars.append(Offline.mult_const(a, c))
+            party.data["triple"] = party.triples.pop()
+            a, _, _ = party.data["triple"]
 
-    def addition_const(self, varid, c):
+            x_, _ = x
+            a_, _ = a
+            party.data["ep"] = (x_ - a_) % n
+            party._broadcast([party.data["ep"]])
+
+        sleep(0.1)
+
         for party in self.parties:
 
-            a = party.vars[varid]
+            ep = party._receive_broadcast([party.data["ep"]])
+            party.data["ep"] = sum([x[0] for x in ep]) % n
 
-            if party.partyId == 0:
-                party.vars.append(Offline.addition_const_1(a, c))
-            else:
-                party.vars.append(Offline.addition_const_2(a, c))
+        for party in self.parties:
+
+            y = party.vars[varid2]
+
+            _, b, _ = party.data["triple"]
+
+            y_, _ = y
+            b_, _ = b
+            party.data["de"] = (y_ - b_) % n
+            party._broadcast([party.data["de"]])
+
+        sleep(0.1)
+
+        for party in self.parties:
+
+            ep = party.data["ep"]
+            de = party._receive_broadcast([party.data["de"]])
+            de = sum([x[0] for x in de]) % n
+
+            addition_const = Offline.addition_const_1 if party.partyId == 0 else Offline.addition_const_2
+
+            a, b, c = party.data["triple"]
+
+            z1 = Offline.addition(
+                c,
+                Offline.mult_const(b, ep)
+            )
+
+            z2 = addition_const(
+                Offline.mult_const(a, de),
+                (ep * de) % n
+            )
+
+            party.vars[varid3] = Offline.addition(z1, z2)
 
 
 class BDOZParty(Party):
@@ -383,8 +526,10 @@ class BDOZParty(Party):
         self.sk = paillier.keyGen(sbit, primes)  # n, g, lamb, miu
         self.pk = [self.sk[0], self.sk[1]]
         self.data = {}
-        self.vars = []
+        self.vars = {}
+        self.singles = []
         self.triples = []
+
         self.input_share = None
         self.input_mult_2 = None
         self.input = None
@@ -397,6 +542,8 @@ class BDOZParty(Party):
 
         ## {self.partyId} ##
         data: {self.data}
+        singles({len(self.singles)}): {self.singles}
+        triples({len(self.triples)}): {self.triples}
 
         input_share: {self.input_share}
         input_mult_2: {self.input_mult_2}
@@ -404,7 +551,6 @@ class BDOZParty(Party):
         output: {self.output}
 
         vars({len(self.vars)}): {self.vars}
-        triples({len(self.triples)}): {self.triples}
         """
 
     def full_clear(self):
@@ -450,7 +596,6 @@ class BDOZParty(Party):
             ret[int(party_id)] = self._to_vals(message)
 
         ret[self.partyId] = vals
-
         return ret
 
     def _unicast(self, target_id, vals):
@@ -471,20 +616,6 @@ class BDOZParty(Party):
         return paillier.decrypt(c, *self.sk)
 
 
-def test_triples():
-    num_parties = 3
-    env = Env(num_parties)
-
-    try:
-        env.triples(4)
-        env._publish_triples()
-        env._clear()
-    except Exception as e:
-        print(e)
-    finally:
-        reg_print(env.parties)
-
-
 def open_with_assert(env, varid):
     var = env.opening(varid, env.parties[0])
     for party in env.parties:
@@ -492,38 +623,74 @@ def open_with_assert(env, varid):
     return var
 
 
+def test_singles():
+    num_parties = 3
+    env = Env(num_parties)
+
+    try:
+        env.initialize(1, 0)
+
+        env.rand("a")
+        a = open_with_assert(env, "a")
+        print(f"[{a}]")
+
+    finally:
+        sleep(3)
+        reg_print(env.parties)
+
+
+def test_triples():
+    num_parties = 3
+    env = Env(num_parties)
+
+    try:
+        env.initialize(0, 1)
+
+        for party in env.parties:
+            party.singles.extend(party.triples.pop())
+
+        env.rand("c")
+        env.rand("b")
+        env.rand("a")
+
+        a = open_with_assert(env, "a")
+        b = open_with_assert(env, "b")
+        c = open_with_assert(env, "c")
+
+        # env.add("a", "b", "xx")
+
+        print(f"[{a}] * [{b}] = [{c}] mod {n}")
+        assert (a * b) % n == c
+
+    finally:
+        sleep(3)
+        reg_print(env.parties)
+
+
 def test_arit():
     num_parties = 3
     env = Env(num_parties)
 
     try:
-        env.singles(2)
-        env._publish_singles()
-        env._clear()
+        env.initialize(2, 1)
+        env.rand("a")
+        env.rand("b")
 
-        a = open_with_assert(env, 0)
-        b = open_with_assert(env, 1)
+        a = open_with_assert(env, "a")
+        b = open_with_assert(env, "b")
 
-        env.addition(0, 1)
-        _r1 = open_with_assert(env, 2)
-        assert (a + b) % n == _r1
-        print(f"[{a}] + [{b}] = [{_r1}] mod {n}")
+        env.add("a", "b", "c")
+        c = open_with_assert(env, "c")
+        print(f"[{a}] + [{b}] = [{c}] mod {n}")
+        assert (a + b) % n == c
 
-        r = randint()
-        env.mult_const(0, r)
-        _r2 = open_with_assert(env, 3)
-        assert (a * r) % n == _r2
-        print(f"[{a}] * {r} = [{_r2}] mod {n}")
+        env.multiply("a", "b", "d")
+        d = open_with_assert(env, "d")
+        print(f"[{a}] * [{b}] = [{d}] mod {n}")
+        assert (a * b) % n == d
 
-        r = randint()
-        env.addition_const(1, r)
-        _r3 = open_with_assert(env, 4)
-        assert (b + r) % n == _r3
-        print(f"[{b}] + {r} = [{_r3}] mod {n}")
-
-    except Exception as e:
-        print(e)
     finally:
+        sleep(3)
         reg_print(env.parties)
 
 
@@ -531,10 +698,116 @@ def test():
     num_parties = 3
     env = Env(num_parties)
 
+    def summ(env, sharid):
+        _sum = 0
+        for party in env.parties:
+            _sum = (
+                _sum + party._decrypt(party.data[sharid][0][party.partyId])) % n
+        return _sum
+
     try:
-        pass
-    except Exception as e:
-        print(e)
+        a, b, q, w, e, r = randints(6)
+        env.parties[0].input_share = [q, w]
+        env.parties[1].input_share = [e, r]
+        env.parties[2].input_share = [
+            (a-q-e) % n,
+            (b-w-r) % n,
+        ]
+
+        env._share(2)
+        for party in env.parties:
+            party.input = party.output
+        env._mult_n(1)
+        for party in env.parties:
+            party.data["<ck>"] = party.output
+
+        ak = summ(env, "<ak>")
+        bk = summ(env, "<bk>")
+        ck = summ(env, "<ck>")
+        print(f"<{ak}> * <{bk}> = <{ck}> mod {n}")
+        assert ak == a
+        assert bk == b
+        assert ck == (a * b) % n
+
+        for party in env.parties:
+            party.input = party.data["<ak>"] + \
+                party.data["<bk>"] + party.data["<ck>"]
+
+        env._add_macs(3)
+
+        for party in env.parties:
+            party.singles.extend(party.output[:])
+
+        env.singles(1)
+
+        env.rand("xxx")
+        env.rand("c")
+        env.rand("b")
+        env.rand("a")
+
+        a = open_with_assert(env, "a")
+        b = open_with_assert(env, "b")
+        c = open_with_assert(env, "c")
+
+        print(f"[{a}] * [{b}] = [{c}] mod {n}")
+        assert (a * b) % n == c
+
+        # print(summ(env, "<bk>"))
+        # print(summ(env, "<ck>"))
+        # print(env.parties[1]._decrypt(env.parties[1].data["<ak>"][0][1]))
+        # print(env.parties[2]._decrypt(env.parties[2].data["<ak>"][0][2]))
+
+        # env._add_macs(1)
+        # for party in env.parties:
+        #     party.singles = party.output
+        # env.rand("a")
+        # a = open_with_assert(env, "a")
+        # print(a)
+        # env._share(2)
+        # for party in env.parties:
+        #     party.input = party.output
+        # env._mult_n(1)
+    finally:
+        reg_print(env.parties)
+
+
+def test2():
+
+    def summ(env, sharid):
+        _sum = 0
+        for party in env.parties:
+            _sum = (
+                _sum + party._decrypt(party.data[sharid][0][party.partyId])) % n
+        return _sum
+
+    num_parties = 3
+    env = Env(num_parties)
+    u = 1
+
+    try:
+        env._share(u)
+
+        for party in env.parties:
+            party.data["<ak>"] = party.output[:]
+
+        env._share(u)
+
+        for party in env.parties:
+            party.data["<bk>"] = party.output[:]
+
+            party.input = party.data["<ak>"] + party.data["<bk>"]
+
+        env._mult_n(u)
+
+        for party in env.parties:
+            party.data["<ck>"] = party.output[:]
+
+        ak = summ(env, "<ak>")
+        bk = summ(env, "<bk>")
+        ck = summ(env, "<ck>")
+        print(f"<{ak}> * <{bk}> = <{ck}> mod {n}")
+        assert ck == (ak * bk) % n
+
     finally:
         reg_print(env.parties)
 
@@ -542,6 +815,8 @@ def test():
 if __name__ == "__main__":
 
     # test()
+    # test2()
+    # test_singles()
     # test_triples()
     test_arit()
     print(f"n: {n}")
