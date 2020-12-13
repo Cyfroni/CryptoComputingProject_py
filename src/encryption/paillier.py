@@ -1,4 +1,4 @@
-import integer
+from . import integer
 import random
 
 
@@ -13,12 +13,18 @@ def sampleGen(n):
     return g
 
 
-def keyGen(sbit):
+def genPrimes(sbit):
     p = integer.randprime(int(sbit/2))
     q = integer.randprime(int(sbit/2))
     while integer.gcd(p*q, (p-1)*(q-1)) != 1:
         p = integer.randprime(int(sbit/2))
         q = integer.randprime(int(sbit/2))
+
+    return p, q
+
+
+def keyGen(sbit, primes=None):
+    p, q = primes if primes else genPrimes(sbit)
     n = p * q
     n2 = n * n
 
@@ -33,7 +39,8 @@ def keyGen(sbit):
 
 def encrypt(m, n, g):
     if m < 0 or m >= n:
-        raise Exception("message m must be not less than 0 and less than n")
+        raise Exception(
+            f"message m must be not less than 0 and less than n\nm:({m})\n")
 
     r = random.randint(1, n - 1)
     n2 = int(n**2)
@@ -50,7 +57,7 @@ def decrypt(c, n, g, lamb, miu):
     if integer.gcd(c, n2) != 1:
         print("error")
     if c < 1 or c >= n2 or integer.gcd(c, n2) != 1:
-        raise Exception("cipher c must be in Group Z_*_n^2")
+        raise Exception(f"cipher c must be in Group Z_*_n^2\nc:({c})\nn:({n})")
     m_bar = integer.mod(funcL(integer.fast_pow(c, lamb, n2), n) * miu, n)
     return m_bar
 
@@ -59,6 +66,15 @@ def plaintextAdd(c1, c2, n, g):
     n2 = n * n
     c_ = integer.mod(c1 * c2, n2)
     return c_
+
+
+def slow_pow(a, p, n, g):
+    n2 = n*n
+    ret = 1
+    for _ in range(p):
+        ret = (ret * a) % n2
+
+    return ret
 
 
 if __name__ == "__main__":
@@ -75,15 +91,18 @@ if __name__ == "__main__":
     # tend = time.time()
     # print("average time: " + str((tend - tstart) / 2))
     c_ = plaintextAdd(c1, c2, n, g)
+    c2_ = slow_pow(c_, 10, n, g)
     # tstart = time.time()
     m1 = decrypt(c1, n, g, l, m)
     m2 = decrypt(c2, n, g, l, m)
     m_bar = decrypt(c_, n, g, l, m)
+    m_bar2 = decrypt(c2_, n, g, l, m)
     # tend = time.time()
     # print("c1:    " + str(c1))
     # print("c2:    " + str(c2))
     # print("c_:    " + str(c_))
-    print("m1:    " + str(m1))
-    print("m2:    " + str(m2))
-    print("m_bar: " + str(m_bar))
+    print("m1:          " + str(m1))
+    print("m2:          " + str(m2))
+    print("m1+m2:       " + str(m_bar))
+    print("10*(m1+m2):  " + str(m_bar2))
     # print("average time: " + str((tend - tstart) / 3))
